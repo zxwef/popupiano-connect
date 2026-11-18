@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+artifacts/
+/docs/research/*.local.md
+.vs/
+TestResults/
+node_modules/
+apps/web/dist/
+*.tsbuildinfo
+*.pcap
+*.pcapng
+btsnoop_hci*.log*
+bugreport*.zip

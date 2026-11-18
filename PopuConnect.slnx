@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="apps/desktop/src/PopuConnect.Core/PopuConnect.Core.csproj" />
+    <Project Path="apps/desktop/src/PopuConnect/PopuConnect.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="apps/desktop/tests/PopuConnect.Tests/PopuConnect.Tests.csproj" />
+  </Folder>
+</Solution>
