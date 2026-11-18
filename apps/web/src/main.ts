@@ -1,57 +1,371 @@
 import './styles.css';
+import { chordNotes, chords, firstNote, lastNote, noteName, pitchClasses, scaleNotes, scales } from './music';
+import { lightsOffFrames, patternFrames, popuPianoPorts, sendFrames } from './lighting';
+import { readNoteEvent } from './midi-input';
+import { enableSound, holdNote, playNotes } from './sound';
 
-const notes = [
-  { name: 'C4', midi: 60, position: 1 },
-  { name: 'C♯4', midi: 61, blackAfter: 1 },
-  { name: 'D4', midi: 62, position: 2 },
-  { name: 'D♯4', midi: 63, blackAfter: 2 },
-  { name: 'E4', midi: 64, position: 3 },
-  { name: 'F4', midi: 65, position: 4 },
-  { name: 'F♯4', midi: 66, blackAfter: 4 },
-  { name: 'G4', midi: 67, position: 5 },
-  { name: 'G♯4', midi: 68, blackAfter: 5 },
-  { name: 'A4', midi: 69, position: 6 },
-  { name: 'A♯4', midi: 70, blackAfter: 6 },
-  { name: 'B4', midi: 71, position: 7 },
-  { name: 'C5', midi: 72, position: 8 },
-];
-const keyboard = document.querySelector<HTMLDivElement>('#keys')!;
-const status = document.querySelector<HTMLParagraphElement>('#audio-status')!;
-let audio: AudioContext | undefined;
+const controls = {
+  chord: document.querySelector<HTMLButtonElement>('#mode-chord')!,
+  scale: document.querySelector<HTMLButtonElement>('#mode-scale')!,
+  tonic: document.querySelector<HTMLSelectElement>('#tonic')!,
+  pattern: document.querySelector<HTMLSelectElement>('#pattern')!,
+  inversion: document.querySelector<HTMLSelectElement>('#inversion')!,
+  inversionField: document.querySelector<HTMLLabelElement>('#inversion-field')!,
+  listen: document.querySelector<HTMLButtonElement>('#listen')!,
+  audioStatus: document.querySelector<HTMLParagraphElement>('#audio-status')!,
+  keyboard: document.querySelector<HTMLDivElement>('#keys')!,
+  computerOctave: document.querySelector<HTMLSelectElement>('#computer-octave')!,
+  noteList: document.querySelector<HTMLUListElement>('#note-list')!,
+  customColor: document.querySelector<HTMLInputElement>('#custom-color')!,
+  swatches: document.querySelectorAll<HTMLButtonElement>('.palette__swatch'),
+  noteColors: document.querySelector<HTMLDivElement>('#note-colors')!,
+  resetColors: document.querySelector<HTMLButtonElement>('#reset-colors')!,
+  connect: document.querySelector<HTMLButtonElement>('#connect-midi')!,
+  midiStatus: document.querySelector<HTMLSpanElement>('#midi-status')!,
+  output: document.querySelector<HTMLSelectElement>('#output')!,
+  outputField: document.querySelector<HTMLLabelElement>('#output-field')!,
+  input: document.querySelector<HTMLSelectElement>('#input')!,
+  inputField: document.querySelector<HTMLLabelElement>('#input-field')!,
+  ports: document.querySelector<HTMLDivElement>('#midi-ports')!,
+  lightsHint: document.querySelector<HTMLParagraphElement>('#lights-hint')!,
+  lightsStatus: document.querySelector<HTMLParagraphElement>('#lights-status')!,
+  apply: document.querySelector<HTMLButtonElement>('#apply-lights')!,
+  off: document.querySelector<HTMLButtonElement>('#lights-off')!,
+  sysex: document.querySelector<HTMLPreElement>('#sysex')!,
+};
 
-async function playNote(note: number): Promise<void> {
-  audio ??= new AudioContext();
-  if (audio.state !== 'running') await audio.resume();
+let mode: 'chord' | 'scale' = 'chord';
+const choices = { chord: 0, scale: 0, inversion: 0 };
+let scheduledNotes: number[] = [];
+let highlightedNotes: number[] = [];
+let midiAccess: MIDIAccess | undefined;
+let outputId = '';
+let inputId: string | undefined;
+let inputPort: MIDIInput | undefined;
+let sendInProgress = false;
+const pianoKeys = new Map<number, HTMLButtonElement>();
+const playingTimers = new Map<number, number>();
+const heldKeys = new Map<string, {note: number; release?: () => void}>();
+const noteColors = new Map<number, string>();
+const notePickers = new Map<number, HTMLInputElement>();
+const computerKeys = 'awsedftgyhujk';
+const blackClasses = new Set([1, 3, 6, 8, 10]);
 
-  const start = audio.currentTime;
-  const oscillator = audio.createOscillator();
-  const envelope = audio.createGain();
-  oscillator.type = 'triangle';
-  oscillator.frequency.value = 440 * 2 ** ((note - 69) / 12);
-  envelope.gain.setValueAtTime(0, start);
-  envelope.gain.linearRampToValueAtTime(0.18, start + 0.015);
-  envelope.gain.exponentialRampToValueAtTime(0.001, start + 0.55);
-  oscillator.connect(envelope).connect(audio.destination);
-  oscillator.start(start);
-  oscillator.stop(start + 0.55);
-  oscillator.onended = () => { oscillator.disconnect(); envelope.disconnect(); };
+function paintPressed(note: number): void {
+  const active = playingTimers.has(note) || [...heldKeys.values()].some(key => key.note === note);
+  pianoKeys.get(note)?.classList.toggle('keyboard__key--playing', active);
 }
 
-for (const note of notes) {
+function releaseKey(source: string): void {
+  const held = heldKeys.get(source);
+  if (!held) return;
+  heldKeys.delete(source);
+  held.release?.();
+  paintPressed(held.note);
+}
+
+function releaseKeys(prefix: string): void {
+  for (const source of heldKeys.keys()) {
+    if (source.startsWith(prefix)) releaseKey(source);
+  }
+}
+
+function audioError(): void {
+  controls.audioStatus.textContent = 'The browser could not play audio. Try pressing a key again.';
+  controls.audioStatus.hidden = false;
+}
+
+function pressKey(source: string, note: number, velocity: number): void {
+  releaseKey(source);
+  controls.audioStatus.hidden = true;
+  const held: {note: number; release?: () => void} = { note };
+  heldKeys.set(source, held);
+  paintPressed(note);
+  void holdNote(note, velocity).then(release => {
+    if (heldKeys.get(source) === held) held.release = release;
+    else release();
+  }).catch(() => {
+    if (heldKeys.get(source) === held) releaseKey(source);
+    audioError();
+  });
+}
+
+function animateNote(note: number, duration = 280): void {
+  window.clearTimeout(playingTimers.get(note));
+  playingTimers.set(note, window.setTimeout(() => {
+    playingTimers.delete(note);
+    paintPressed(note);
+  }, duration));
+  paintPressed(note);
+}
+
+async function play(notes: readonly number[], step = 0): Promise<void> {
+  controls.audioStatus.hidden = true;
+  try {
+    await playNotes(notes, step);
+    notes.forEach((note, index) => window.setTimeout(() => animateNote(note), index * step * 1000));
+  } catch {
+    audioError();
+  }
+}
+
+controls.tonic.replaceChildren(...pitchClasses.map((name, index) => new Option(name, String(index))));
+
+let whiteKeys = 0;
+for (let note = firstNote; note <= lastNote; note++) {
+  const name = noteName(note);
+  const black = blackClasses.has(note % 12);
   const key = document.createElement('button');
   key.type = 'button';
-  key.className = note.blackAfter ? 'key key--black' : 'key';
-  key.textContent = note.name;
-  if (note.blackAfter) key.style.left = (note.blackAfter * 12.5) + '%';
-  if (note.position) key.style.gridColumn = String(note.position);
-  key.addEventListener('click', async () => {
-    try {
-      await playNote(note.midi);
-      status.hidden = true;
-    } catch {
-      status.textContent = 'Браузер не смог воспроизвести звук.';
-      status.hidden = false;
-    }
+  key.className = 'keyboard__key' + (black ? ' keyboard__key--sharp' : '');
+  key.setAttribute('aria-label', name);
+  key.title = name;
+  if (black) key.style.setProperty('--position', (whiteKeys / 17 * 100) + '%');
+  else {
+    key.style.gridColumn = String(++whiteKeys);
+    if (note % 12 === 0 || note === lastNote) key.textContent = name;
+  }
+  key.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    key.setPointerCapture(event.pointerId);
+    pressKey('pointer:' + event.pointerId, note, 94);
   });
-  keyboard.append(key);
+  key.addEventListener('lostpointercapture', event => releaseKey('pointer:' + event.pointerId));
+  key.addEventListener('click', event => {
+    if (event.detail === 0) void play([note]);
+  });
+  pianoKeys.set(note, key);
+  controls.keyboard.append(key);
 }
+
+function renderPattern(): void {
+  const root = firstNote + Number(controls.tonic.value);
+  const color = controls.customColor.value;
+  const group = mode === 'chord' ? chords[choices.chord] : scales[choices.scale];
+  if (mode === 'chord') {
+    const names = ['Root position', 'First inversion', 'Second inversion', 'Third inversion', 'Fourth inversion'];
+    const inversion = Math.min(choices.inversion, group.intervals.length - 1);
+    controls.inversion.replaceChildren(...group.intervals.map((_, index) => new Option(names[index], String(index))));
+    controls.inversion.value = String(inversion);
+    choices.inversion = inversion;
+    scheduledNotes = chordNotes(root, group.intervals, inversion);
+    highlightedNotes = scheduledNotes;
+  } else {
+    scheduledNotes = [...group.intervals.map(interval => root + interval), root + 12];
+    highlightedNotes = scaleNotes(root, group.intervals);
+  }
+  const labels = mode === 'chord' ? scheduledNotes.map(noteName) : group.intervals.map(interval => pitchClasses[(root + interval) % 12]);
+  controls.noteList.replaceChildren(...labels.map(label => {
+    const item = document.createElement('li');
+    item.className = 'keyboard__note';
+    item.textContent = label;
+    return item;
+  }));
+  for (const [note, key] of pianoKeys) {
+    key.classList.toggle('keyboard__key--selected', highlightedNotes.includes(note));
+    key.style.setProperty('--note-color', noteColors.get(note % 12) ?? color);
+  }
+  controls.sysex.textContent = patternFrames(highlightedNotes, color, noteColors)
+    .map(frame => frame.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join(' ')).join('\n\n');
+}
+
+function setMode(next: typeof mode): void {
+  mode = next;
+  for (const [name, button] of [['chord', controls.chord], ['scale', controls.scale]] as const) {
+    const active = name === mode;
+    button.classList.toggle('mode-switch__button--active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }
+  const patterns = mode === 'chord' ? chords : scales;
+  controls.pattern.replaceChildren(...patterns.map((pattern, index) => new Option(pattern.label, String(index))));
+  controls.pattern.value = String(choices[mode]);
+  controls.inversionField.hidden = mode !== 'chord';
+  renderPattern();
+}
+
+controls.chord.addEventListener('click', () => setMode('chord'));
+controls.scale.addEventListener('click', () => setMode('scale'));
+controls.tonic.addEventListener('change', renderPattern);
+controls.pattern.addEventListener('change', () => {
+  choices[mode] = Number(controls.pattern.value);
+  renderPattern();
+});
+controls.inversion.addEventListener('change', () => {
+  choices.inversion = Number(controls.inversion.value);
+  renderPattern();
+});
+controls.listen.addEventListener('click', async () => {
+  const notes = [...scheduledNotes];
+  const step = mode === 'scale' ? 0.22 : 0;
+  controls.listen.disabled = true;
+  await play(notes, step);
+  window.setTimeout(() => { controls.listen.disabled = false; }, step ? notes.length * step * 1000 : 400);
+});
+document.addEventListener('keydown', event => {
+  if (event.repeat || event.ctrlKey || event.altKey || event.metaKey ||
+    (event.target instanceof HTMLElement && event.target.closest('input, select, textarea, [contenteditable]'))) return;
+  if (!event.code.startsWith('Key')) return;
+  const index = computerKeys.indexOf(event.code.slice(3).toLowerCase());
+  if (index < 0) return;
+  event.preventDefault();
+  pressKey('pc:' + event.code, Number(controls.computerOctave.value) + index, 94);
+});
+document.addEventListener('keyup', event => releaseKey('pc:' + event.code));
+window.addEventListener('blur', () => {
+  releaseKeys('pc:');
+  releaseKeys('pointer:');
+});
+
+function setColor(color: string): void {
+  controls.customColor.value = color;
+  document.documentElement.style.setProperty('--note-color', color);
+  for (const swatch of controls.swatches) swatch.setAttribute('aria-pressed', String(swatch.dataset.color === color));
+  for (const [pitch, picker] of notePickers) {
+    if (!noteColors.has(pitch)) picker.value = color;
+  }
+  renderPattern();
+}
+
+for (const swatch of controls.swatches) {
+  swatch.addEventListener('click', () => setColor(swatch.dataset.color!));
+}
+controls.customColor.addEventListener('input', () => setColor(controls.customColor.value));
+
+for (const [pitch, name] of pitchClasses.entries()) {
+  const field = document.createElement('label');
+  field.className = 'palette-editor__note';
+  field.textContent = name;
+  const picker = document.createElement('input');
+  picker.type = 'color';
+  picker.className = 'palette-editor__input';
+  picker.setAttribute('aria-label', name + ' note color');
+  picker.value = controls.customColor.value;
+  picker.addEventListener('input', () => {
+    noteColors.set(pitch, picker.value);
+    renderPattern();
+  });
+  notePickers.set(pitch, picker);
+  field.append(picker);
+  controls.noteColors.append(field);
+}
+controls.resetColors.addEventListener('click', () => {
+  noteColors.clear();
+  setColor(controls.customColor.value);
+});
+
+function selectedOutput(): MIDIOutput | undefined {
+  const output = midiAccess?.outputs.get(outputId);
+  return output ? popuPianoPorts([output])[0] : undefined;
+}
+
+function handleMidiMessage(event: MIDIMessageEvent): void {
+  const noteEvent = readNoteEvent(event.data);
+  if (!noteEvent) return;
+  const prefix = 'midi:' + noteEvent.channel + ':';
+  if (noteEvent.kind === 'releaseChannel') releaseKeys(prefix);
+  else if (noteEvent.kind === 'release') releaseKey(prefix + noteEvent.note);
+  else pressKey(prefix + noteEvent.note, noteEvent.note, noteEvent.velocity);
+}
+
+function listenOn(input: MIDIInput | undefined): void {
+  if (inputPort === input) return;
+  const old = inputPort;
+  inputPort = input;
+  if (old) {
+    old.onmidimessage = null;
+    releaseKeys('midi:');
+    void old.close().catch(() => {});
+  }
+  if (input) input.onmidimessage = handleMidiMessage;
+}
+
+function updateMidiButtons(): void {
+  controls.apply.disabled = controls.off.disabled = sendInProgress || !selectedOutput();
+}
+
+function showLightsStatus(message: string): void {
+  controls.lightsStatus.textContent = message;
+  controls.lightsStatus.hidden = !message;
+}
+
+function refreshOutputs(): void {
+  if (!midiAccess) return;
+  const outputs = popuPianoPorts(midiAccess.outputs.values());
+  const inputs = popuPianoPorts(midiAccess.inputs.values());
+  if (!outputId && outputs.length === 1) outputId = outputs[0].id;
+  if (inputId === undefined && inputs.length === 1) inputId = inputs[0].id;
+  for (const [select, ports, id, placeholder] of [
+    [controls.output, outputs, outputId, 'Select a PopuPiano output'],
+    [controls.input, inputs, inputId, 'No MIDI input'],
+  ] as const) {
+    select.replaceChildren(new Option(placeholder, ''), ...ports.map(port => new Option(port.name ?? 'PopuPiano', port.id)));
+    select.value = ports.some(port => port.id === id) ? id! : '';
+  }
+  controls.outputField.hidden = outputs.length === 0;
+  controls.inputField.hidden = inputs.length === 0;
+  controls.ports.hidden = !outputs.length && !inputs.length;
+  listenOn(inputs.find(input => input.id === inputId));
+  const selected = selectedOutput();
+  controls.midiStatus.textContent = selected && inputPort ? 'MIDI input and output selected'
+    : selected ? 'MIDI output selected' : inputPort ? 'MIDI input selected'
+    : outputs.length || inputs.length ? 'Select a MIDI port' : 'PopuPiano not found';
+  controls.midiStatus.classList.toggle('topbar__status--ready', Boolean(selected || inputPort));
+  controls.lightsHint.textContent = selected
+    ? 'The pattern applies to the 29 main keys. Turn off lights also clears ExtraPiano.'
+    : 'Turn on PopuPiano and connect it to the device running this browser.';
+  updateMidiButtons();
+}
+
+controls.connect.addEventListener('click', async () => {
+  if (!navigator.requestMIDIAccess) {
+    controls.midiStatus.textContent = 'Web MIDI unavailable';
+    showLightsStatus('Use a browser that supports Web MIDI and open the site over HTTPS or on localhost.');
+    return;
+  }
+  controls.connect.disabled = true;
+  void enableSound().catch(audioError);
+  try {
+    if (!midiAccess) {
+      midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+      midiAccess.onstatechange = refreshOutputs;
+    }
+    controls.connect.textContent = 'Refresh ports';
+    showLightsStatus('');
+    refreshOutputs();
+  } catch {
+    controls.midiStatus.textContent = 'MIDI access denied';
+    showLightsStatus('Allow MIDI SysEx access in the site settings.');
+  } finally {
+    controls.connect.disabled = false;
+  }
+});
+controls.output.addEventListener('change', () => {
+  outputId = controls.output.value;
+  showLightsStatus('');
+  refreshOutputs();
+});
+controls.input.addEventListener('change', () => {
+  inputId = controls.input.value;
+  refreshOutputs();
+});
+
+async function applyLights(frames: number[][]): Promise<void> {
+  const output = selectedOutput();
+  if (!output || sendInProgress) return;
+  sendInProgress = true;
+  updateMidiButtons();
+  showLightsStatus('');
+  try {
+    await sendFrames(output, frames);
+    showLightsStatus('Commands sent to the selected MIDI output.');
+  } catch {
+    showLightsStatus('Could not send the lighting commands. Check the MIDI output and SysEx permission.');
+  } finally {
+    sendInProgress = false;
+    updateMidiButtons();
+  }
+}
+
+controls.apply.addEventListener('click', () => void applyLights(patternFrames(highlightedNotes, controls.customColor.value, noteColors)));
+controls.off.addEventListener('click', () => void applyLights(lightsOffFrames()));
+setMode('chord');

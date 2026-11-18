@@ -1,20 +1,129 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PopuConnect</title>
+    <meta name="description" content="Virtual keyboard, chords, scales, and PopuPiano lighting.">
+    <title>PopuConnect — Keyboard and Lighting</title>
     <link rel="icon" href="data:,">
   </head>
-  <body>
-    <main>
-      <h1>PopuConnect</h1>
-      <section aria-labelledby="keyboard-title">
-        <h2 id="keyboard-title">Виртуальная клавиатура</h2>
-        <p>Нажмите клавишу, чтобы услышать ноту.</p>
-        <div id="keys" class="keys" role="group" aria-label="Клавиши от C4 до C5"></div>
-        <p id="audio-status" role="status" hidden></p>
-      </section>
+  <body class="app">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="topbar__brand" href="./">
+          <span class="topbar__mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          PopuConnect
+        </a>
+        <div class="topbar__device">
+          <span class="topbar__status" id="midi-status" role="status">MIDI disconnected</span>
+          <button class="button button--primary button--small" type="button" id="connect-midi">Connect MIDI</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="workbench">
+      <header class="workbench__intro">
+        <h1 class="workbench__title">Keyboard Workshop</h1>
+        <p class="workbench__description">Play notes, explore chords and scales, and light them up on PopuPiano.</p>
+      </header>
+
+      <div class="workbench__layout">
+        <section class="composer" aria-labelledby="composer-title">
+          <h2 class="composer__title" id="composer-title">Chords and Scales</h2>
+          <div class="mode-switch" role="group" aria-label="Note pattern">
+            <button class="mode-switch__button mode-switch__button--active" id="mode-chord" type="button" aria-pressed="true">Chord</button>
+            <button class="mode-switch__button" id="mode-scale" type="button" aria-pressed="false">Scale</button>
+          </div>
+
+          <label class="field">
+            <span class="field__label">Root</span>
+            <select class="field__select" id="tonic"></select>
+          </label>
+          <label class="field">
+            <span class="field__label">Type</span>
+            <select class="field__select" id="pattern"></select>
+          </label>
+          <label class="field field--inversion" id="inversion-field">
+            <span class="field__label">Inversion</span>
+            <select class="field__select" id="inversion"></select>
+          </label>
+
+          <button class="button button--primary composer__listen" type="button" id="listen">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2v12l9-6z"/></svg>
+            Play preview
+          </button>
+          <p class="composer__status" id="audio-status" role="status" hidden></p>
+        </section>
+
+        <div class="workbench__instrument">
+          <section class="keyboard" aria-labelledby="keyboard-title">
+            <div class="keyboard__header">
+              <div>
+                <h2 class="keyboard__title" id="keyboard-title">Keyboard</h2>
+                <p class="keyboard__range">C3–E5 <span aria-hidden="true">·</span> 29 keys</p>
+              </div>
+              <ul class="keyboard__notes" id="note-list" aria-label="Notes in the selected pattern"></ul>
+            </div>
+            <div class="keyboard__scroll">
+              <div id="keys" class="keyboard__keys" role="group" aria-label="Virtual keyboard from C3 to E5"></div>
+            </div>
+            <div class="keyboard__footer">
+              <span class="keyboard__legend"><span aria-hidden="true"></span>Pattern notes</span>
+              <label class="keyboard__shortcuts">
+                Computer keys <kbd>A–K</kbd>
+                <select class="keyboard__octave" id="computer-octave" aria-label="Computer keyboard octave">
+                  <option value="48">C3–C4</option>
+                  <option value="60" selected>C4–C5</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="lights" aria-labelledby="lights-title">
+            <div class="lights__heading">
+              <h2 class="lights__title" id="lights-title">PopuPiano Lighting</h2>
+              <p class="lights__hint" id="lights-hint">Connect PopuPiano to apply the pattern to its keys.</p>
+            </div>
+            <div class="lights__ports" id="midi-ports" hidden>
+              <label class="field" id="output-field" hidden>
+                <span class="field__label">MIDI output</span>
+                <select class="field__select" id="output"></select>
+              </label>
+              <label class="field" id="input-field" hidden>
+                <span class="field__label">MIDI input</span>
+                <select class="field__select" id="input"></select>
+              </label>
+            </div>
+            <div class="lights__controls">
+              <fieldset class="palette">
+                <legend class="palette__label">Note color</legend>
+                <div class="palette__colors">
+                  <button class="palette__swatch palette__swatch--lilac" type="button" data-color="#a9abff" aria-label="Lilac" aria-pressed="true"></button>
+                  <button class="palette__swatch palette__swatch--peach" type="button" data-color="#ff9d73" aria-label="Peach" aria-pressed="false"></button>
+                  <button class="palette__swatch palette__swatch--mint" type="button" data-color="#63dfbe" aria-label="Mint" aria-pressed="false"></button>
+                  <button class="palette__swatch palette__swatch--blue" type="button" data-color="#79cfff" aria-label="Light blue" aria-pressed="false"></button>
+                  <input class="palette__custom" id="custom-color" type="color" value="#a9abff" aria-label="Custom color">
+                </div>
+              </fieldset>
+              <div class="lights__actions">
+                <button class="button button--secondary" type="button" id="lights-off" disabled>Turn off lights</button>
+                <button class="button button--primary" type="button" id="apply-lights" disabled>Light up notes</button>
+              </div>
+            </div>
+            <p class="lights__status" id="lights-status" role="status" hidden></p>
+            <details class="palette-editor">
+              <summary class="palette-editor__summary">Individual note colors</summary>
+              <p class="palette-editor__hint">Each color applies to matching notes in the pattern across all octaves.</p>
+              <div class="palette-editor__notes" id="note-colors"></div>
+              <button class="button button--secondary button--small" type="button" id="reset-colors">Reset note colors</button>
+            </details>
+            <details class="protocol">
+              <summary class="protocol__summary">SysEx commands</summary>
+              <pre class="protocol__bytes" id="sysex"></pre>
+            </details>
+          </section>
+        </div>
+      </div>
     </main>
     <script type="module" src="./src/main.ts"></script>
   </body>
