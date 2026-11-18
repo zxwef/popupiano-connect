@@ -22,11 +22,15 @@ Open the site over HTTPS or on localhost in a browser with Web MIDI. Connect Pop
 
 **Light up notes** sends the palette and the pattern to the 29-key main module. **Individual note colors** lets you assign a color to each pitch class across octaves. **Turn off lights** sends lights-off frames to the main module and ExtraPiano. **SysEx commands** shows the current pattern as hexadecimal bytes.
 
-## Build for GitHub Pages
+## Preview the production build
 
 ```powershell
 npm.cmd run build
 npm.cmd run preview
 ```
 
-Publish `dist/`. The build uses relative URLs so it can run from a GitHub Pages subdirectory. In GitHub Actions, build from `apps/web` and upload `apps/web/dist` as the Pages artifact. [Vite guide to GitHub Pages](https://vite.dev/guide/static-deploy.html#github-pages)
+## Deploy to GitHub Pages
+
+In the GitHub repository, open **Settings → Pages** and set **Build and deployment → Source** to **GitHub Actions**. To publish, open **Actions → Deploy PopuConnect Web → Run workflow** and select `master`. [GitHub Pages source configuration](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site#publishing-with-a-custom-github-actions-workflow)
+
+Run the Web tests locally before publishing. The workflow installs dependencies, builds the site, and publishes `apps/web/dist`. Vite uses relative URLs so the site works under the repository path. The deployment URL appears in the workflow's `github-pages` environment. [Deployment workflow](../../.github/workflows/deploy-pages.yml)
