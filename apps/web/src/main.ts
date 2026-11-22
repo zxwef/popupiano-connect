@@ -3,6 +3,10 @@ import { chordNotes, chords, firstNote, lastNote, noteName, pitchClasses, scaleN
 import { lightsOffFrames, patternFrames, popuPianoPorts, sendFrames } from './lighting';
 import { readNoteEvent } from './midi-input';
 import { enableSound, holdNote, playNotes } from './sound';
+import { mountSheetMusic } from './sheet-music/sheet-music';
+import { extraPianoNotes, mainPianoNotes } from './lighting';
+import { rememberPreference } from './preferences';
+import { renderPlayedStaff } from './played-staff';
 
 const controls = {
   chord: document.querySelector<HTMLButtonElement>('#mode-chord')!,
@@ -62,6 +66,7 @@ function releaseKey(source: string): void {
   heldKeys.delete(source);
   held.release?.();
   paintPressed(held.note);
+  updatePlayedStaff();
 }
 
 function releaseKeys(prefix: string): void {
@@ -75,19 +80,24 @@ function audioError(): void {
   controls.audioStatus.hidden = false;
 }
 
-function pressKey(source: string, note: number, velocity: number): void {
+function pressKey(source: string, note: number, velocity: number, duration?: number): void {
+  const newPress = duration !== undefined || heldKeys.get(source)?.note !== note;
   releaseKey(source);
   controls.audioStatus.hidden = true;
   const held: {note: number; release?: () => void} = { note };
   heldKeys.set(source, held);
   paintPressed(note);
+  updatePlayedStaff();
   void holdNote(note, velocity).then(release => {
     if (heldKeys.get(source) === held) held.release = release;
     else release();
-  }).catch(() => {
-    if (heldKeys.get(source) === held) releaseKey(source);
-    audioError();
-  });
+  }).catch(audioError);
+  if (duration !== undefined) {
+    window.setTimeout(() => {
+      if (heldKeys.get(source) === held) releaseKey(source);
+    }, duration);
+  }
+  if (newPress) sheetMusic.pressNote(note);
 }
 
 function animateNote(note: number, duration = 280): void {
@@ -111,8 +121,10 @@ async function play(notes: readonly number[], step = 0): Promise<void> {
 
 controls.tonic.replaceChildren(...pitchClasses.map((name, index) => new Option(name, String(index))));
 
+const extendedPianoNotes = [...new Set([...extraPianoNotes, ...mainPianoNotes])].sort((left, right) => left - right);
 let whiteKeys = 0;
-for (let note = firstNote; note <= lastNote; note++) {
+for (const note of extendedPianoNotes) {
+  if (note === firstNote) whiteKeys = 0;
   const name = noteName(note);
   const black = blackClasses.has(note % 12);
   const key = document.createElement('button');
@@ -121,10 +133,9 @@ for (let note = firstNote; note <= lastNote; note++) {
   key.setAttribute('aria-label', name);
   key.title = name;
   if (black) key.style.setProperty('--position', (whiteKeys / 17 * 100) + '%');
-  else {
-    key.style.gridColumn = String(++whiteKeys);
-    if (note % 12 === 0 || note === lastNote) key.textContent = name;
-  }
+  else key.style.gridColumn = String(++whiteKeys);
+  if (note % 12 === 0 || note === lastNote) key.textContent = name;
+  key.hidden = !mainPianoNotes.includes(note);
   key.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
     key.setPointerCapture(event.pointerId);
@@ -132,13 +143,45 @@ for (let note = firstNote; note <= lastNote; note++) {
   });
   key.addEventListener('lostpointercapture', event => releaseKey('pointer:' + event.pointerId));
   key.addEventListener('click', event => {
-    if (event.detail === 0) void play([note]);
+    if (event.detail === 0) pressKey('button:' + note, note, 94, 180);
   });
   pianoKeys.set(note, key);
   controls.keyboard.append(key);
 }
 
+const keyboardRange = document.querySelector<HTMLParagraphElement>('.keyboard__range')!;
+const pianoOctaves = Array.from(controls.computerOctave.options);
+
+function setKeyboardRange(extended: boolean): void {
+  const notes = extended ? extendedPianoNotes : mainPianoNotes;
+  const whiteCount = notes.filter(note => !blackClasses.has(note % 12)).length;
+  let whiteKeys = 0;
+  for (const [note, key] of pianoKeys) {
+    key.hidden = !notes.includes(note);
+    if (key.hidden) continue;
+    if (blackClasses.has(note % 12)) key.style.setProperty('--position', (whiteKeys / whiteCount * 100) + '%');
+    else key.style.gridColumn = String(++whiteKeys);
+  }
+
+  const range = noteName(notes[0]) + '–' + noteName(notes[notes.length - 1]);
+  keyboardRange.textContent = range + ' · ' + notes.length + ' keys';
+  controls.keyboard.setAttribute('aria-label', 'Virtual keyboard from ' + range);
+  controls.keyboard.classList.toggle('keyboard__keys--extended', extended);
+  controls.keyboard.style.setProperty('--white-key-count', String(whiteCount));
+
+  const octave = controls.computerOctave.value;
+  const octaves = [...pianoOctaves];
+  if (extended) octaves.unshift(new Option('C1–C2', '24'), new Option('C2–C3', '36'));
+  octaves.push(new Option('C5–E5', '72'));
+  controls.computerOctave.replaceChildren(...octaves);
+  controls.computerOctave.value = octaves.some(option => option.value === octave) ? octave : '60';
+}
+
+controls.keyboard.closest('.keyboard')!.after(controls.audioStatus);
+const sheetMusic = mountSheetMusic(pianoKeys, setKeyboardRange, renderPattern, selectedOutput);
+
 function renderPattern(): void {
+  if (!showChordsAndScales.checked || workbench.hasAttribute('data-score-open')) return;
   const root = firstNote + Number(controls.tonic.value);
   const color = controls.customColor.value;
   const group = mode === 'chord' ? chords[choices.chord] : scales[choices.scale];
@@ -152,7 +195,7 @@ function renderPattern(): void {
     highlightedNotes = scheduledNotes;
   } else {
     scheduledNotes = [...group.intervals.map(interval => root + interval), root + 12];
-    highlightedNotes = scaleNotes(root, group.intervals);
+    highlightedNotes = scaleNotes(root, group.intervals, extendedPianoNotes[0]);
   }
   const labels = mode === 'chord' ? scheduledNotes.map(noteName) : group.intervals.map(interval => pitchClasses[(root + interval) % 12]);
   controls.noteList.replaceChildren(...labels.map(label => {
@@ -202,13 +245,15 @@ controls.listen.addEventListener('click', async () => {
   window.setTimeout(() => { controls.listen.disabled = false; }, step ? notes.length * step * 1000 : 400);
 });
 document.addEventListener('keydown', event => {
-  if (event.repeat || event.ctrlKey || event.altKey || event.metaKey ||
+  if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || document.querySelector('dialog[open]') ||
     (event.target instanceof HTMLElement && event.target.closest('input, select, textarea, [contenteditable]'))) return;
   if (!event.code.startsWith('Key')) return;
   const index = computerKeys.indexOf(event.code.slice(3).toLowerCase());
   if (index < 0) return;
+  const note = Number(controls.computerOctave.value) + index;
+  if (note > lastNote) return;
   event.preventDefault();
-  pressKey('pc:' + event.code, Number(controls.computerOctave.value) + index, 94);
+  pressKey('pc:' + event.code, note, 94);
 });
 document.addEventListener('keyup', event => releaseKey('pc:' + event.code));
 window.addEventListener('blur', () => {
@@ -251,6 +296,50 @@ for (const [pitch, name] of pitchClasses.entries()) {
 controls.resetColors.addEventListener('click', () => {
   noteColors.clear();
   setColor(controls.customColor.value);
+});
+
+const workbench = document.querySelector<HTMLElement>('.workbench')!;
+const showPlayedStaff = document.querySelector<HTMLInputElement>('#show-played-staff')!;
+const playedStaffPanel = document.querySelector<HTMLElement>('.played-staff')!;
+const playedStaff = document.querySelector<SVGSVGElement>('#played-staff')!;
+controls.keyboard.closest('.keyboard')!.before(playedStaffPanel);
+const showChordsAndScales = document.querySelector<HTMLInputElement>('#show-chords-scales')!;
+
+function updatePlayedStaff(): void {
+  if (showPlayedStaff.checked) {
+    renderPlayedStaff(playedStaff, Array.from(heldKeys.values(), key => key.note));
+  }
+}
+
+function updatePlayedStaffVisibility(): void {
+  playedStaffPanel.hidden = !showPlayedStaff.checked;
+  workbench.toggleAttribute('data-show-played-staff', showPlayedStaff.checked);
+  updatePlayedStaff();
+}
+
+rememberPreference('showPlayedStaff', showPlayedStaff);
+showPlayedStaff.addEventListener('change', updatePlayedStaffVisibility);
+updatePlayedStaffVisibility();
+
+function updatePatternVisibility(): void {
+  const enabled = showChordsAndScales.checked;
+  workbench.toggleAttribute('data-show-patterns', enabled);
+  if (enabled) renderPattern();
+  else {
+    for (const key of pianoKeys.values()) key.classList.remove('keyboard__key--selected');
+  }
+}
+
+rememberPreference('showChordsAndScales', showChordsAndScales);
+showChordsAndScales.addEventListener('change', updatePatternVisibility);
+workbench.toggleAttribute('data-show-patterns', showChordsAndScales.checked);
+
+const topbar = document.querySelector<HTMLElement>('.topbar')!;
+topbar.inert = workbench.inert = true;
+document.body.dataset.appLoading = 'restoring';
+void sheetMusic.ready.then(() => {
+  topbar.inert = workbench.inert = false;
+  document.body.removeAttribute('data-app-loading');
 });
 
 function selectedOutput(): MIDIOutput | undefined {
@@ -305,6 +394,7 @@ function refreshOutputs(): void {
   controls.inputField.hidden = inputs.length === 0;
   controls.ports.hidden = !outputs.length && !inputs.length;
   listenOn(inputs.find(input => input.id === inputId));
+  sheetMusic.outputChanged(outputs);
   const selected = selectedOutput();
   controls.midiStatus.textContent = selected && inputPort ? 'MIDI input and output selected'
     : selected ? 'MIDI output selected' : inputPort ? 'MIDI input selected'

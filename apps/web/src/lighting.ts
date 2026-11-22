@@ -1,6 +1,9 @@
 const mainModule = { address: 0x03, count: 29, firstMidiNote: 48 };
 const extensionModule = { address: 0x04, count: 24, firstMidiNote: 24 };
 
+export const mainPianoNotes = Array.from({ length: mainModule.count }, (_, key) => mainModule.firstMidiNote + key);
+export const extraPianoNotes = Array.from({ length: extensionModule.count }, (_, key) => extensionModule.firstMidiNote + key);
+
 function lamps(module: typeof mainModule, slots?: ReadonlyMap<number, number>): number[] {
   const bytes = [0xf0, module.address, 0x20, module.count];
   for (let key = 0; key < module.count; key++) {
@@ -22,7 +25,7 @@ export function patternFrames(notes: readonly number[], color: string, noteColor
   const palette: number[] = [];
   const slots = new Map<number, number>();
   for (const note of notes) {
-    if (!Number.isInteger(note) || note < 48 || note > 76) continue;
+    if (!mainPianoNotes.includes(note)) continue;
     const channels = rgb7(noteColors?.get(note % 12) ?? color);
     const key = channels.join(',');
     let slot = colors.get(key);
@@ -48,8 +51,19 @@ export function popuPianoPorts<Port extends MIDIPort>(ports: Iterable<Port>): Po
 
 const lastSend = new WeakMap<MIDIOutput, number>();
 
-export async function sendFrames(output: MIDIOutput, frames: readonly number[][]): Promise<void> {
+export function sendFinalFrame(output: MIDIOutput, frame: number[]): void {
+  if ('clear' in output && typeof output.clear === 'function') {
+    output.clear();
+    output.send(frame);
+  } else {
+    // Put the final frame after any writes already queued by this page.
+    output.send(frame, Math.max(performance.now(), (lastSend.get(output) ?? -25) + 25));
+  }
+}
+
+export async function sendFrames(output: MIDIOutput, frames: readonly number[][], signal?: AbortSignal): Promise<void> {
   await output.open();
+  if (signal?.aborted) return;
   let at = Math.max(performance.now(), (lastSend.get(output) ?? -25) + 25);
   for (const frame of frames) {
     output.send(frame, at);

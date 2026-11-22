@@ -48,8 +48,8 @@ export function chordNotes(tonic: number, intervals: readonly number[], inversio
   return notes.map(note => note - octavesDown * 12);
 }
 
-export function scaleNotes(tonic: number, intervals: readonly number[]): number[] {
+export function scaleNotes(tonic: number, intervals: readonly number[], lowestNote = firstNote): number[] {
   const classes = new Set(intervals.map(interval => (tonic + interval) % 12));
-  return Array.from({ length: lastNote - firstNote + 1 }, (_, index) => firstNote + index)
+  return Array.from({ length: lastNote - lowestNote + 1 }, (_, index) => lowestNote + index)
     .filter(note => classes.has(note % 12));
 }

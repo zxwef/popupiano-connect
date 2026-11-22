@@ -1,0 +1,113 @@
+.workbench[data-score-open] {
+  --piano-key-height: clamp(5.75rem, 16dvh, 9rem);
+  width: min(1320px, calc(100% - clamp(1rem, 4vw, 2rem)));
+}
+.workbench[data-score-open] :is(.composer, #note-list, .keyboard__legend) { display: none; }
+.workbench[data-score-open] .workbench__layout { grid-template-columns: minmax(0, 1fr); }
+.workbench[data-score-open] .workbench__instrument { gap: .65rem; }
+.workbench[data-score-open] .keyboard { padding: .65rem .8rem; }
+.workbench[data-score-open] .keyboard__header { margin-bottom: .55rem; }
+.workbench[data-score-open] .keyboard__header > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: .4rem; }
+.workbench[data-score-open] .keyboard__title { font-size: 1rem; }
+.workbench[data-score-open] .keyboard__range { margin: 0; }
+.workbench[data-score-open] .keyboard__keys { height: var(--piano-key-height); }
+.workbench[data-score-open] .keyboard__footer { margin-top: .45rem; }
+.workbench[data-show-played-staff] { --played-staff-space: 8rem; }
+
+.sheet-music {
+  min-width: 0;
+  margin-bottom: .65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.sheet-music__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .65rem;
+  padding: .4rem .55rem;
+}
+.sheet-music__title { flex: 1 1 12rem; min-width: 0; }
+.sheet-music__title h1, .sheet-music__title p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-music__title h1 { font-size: 1rem; line-height: 1.3; }
+.sheet-music__title p { color: var(--mute); font-size: .74rem; }
+.sheet-music__navigation, .sheet-music__measure { display: flex; align-items: center; gap: .3rem; }
+.sheet-music__measure { margin-inline-start: .25rem; color: var(--mute); font-size: .78rem; white-space: nowrap; }
+.sheet-music__measure select { width: auto; min-height: 32px; }
+.sheet-music__viewport {
+  --score-reserve: 14rem;
+  position: relative;
+  isolation: isolate;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  max-height: max(8rem, calc(100dvh - var(--piano-key-height) - var(--score-reserve) - var(--played-staff-space, 0px)));
+  border-top: 1px solid var(--line);
+}
+.sheet-music__window[data-windowed] {
+  height: var(--system-height);
+  overflow: visible clip;
+}
+.sheet-music__window[data-windowed] > div {
+  position: relative;
+  top: calc(-1 * var(--system-top));
+}
+.full-score-dialog { width: min(88rem, calc(100% - 1.25rem)); overflow: hidden; }
+.full-score-dialog[open] { grid-template-rows: auto minmax(0, 1fr); }
+.full-score-dialog .sheet-music__viewport { max-height: none; }
+.sheet-music__file { padding: 1rem; border: 1px dashed #bdbbce; border-radius: 8px; }
+.sheet-music__file--dragging { background: #edeafe; border-color: var(--accent); }
+.sheet-music__file input { min-width: 0; width: 100%; color: var(--mute); font-size: .82rem; }
+.sheet-music__message { margin: 0; color: var(--mute); font-size: .83rem; line-height: 1.4; }
+.sheet-music__message--notice { color: #8a4809; }
+.sheet-music__message--error { color: #982b34; }
+#practice-feedback { padding: .35rem .65rem; border-top: 1px solid var(--line); }
+.sheet-music__option { display: flex; align-items: start; gap: .45rem; font-size: .83rem; }
+.sheet-music__option input { accent-color: var(--accent); }
+
+@media (max-width: 540px) {
+  .sheet-music__title { flex-basis: 100%; }
+  .sheet-music__toolbar #close-score { margin-inline-start: auto; }
+  .sheet-music__viewport { --score-reserve: 17rem; }
+}
+
+.keyboard__keys--extended {
+  grid-template-columns: repeat(var(--white-key-count), minmax(0, 1fr));
+  min-width: 760px;
+}
+.keyboard__keys--extended .keyboard__key--sharp { width: calc(63.75% / var(--white-key-count)); }
+.keyboard__key.keyboard__key--expected,
+.keyboard__key--sharp.keyboard__key--expected { background: #86e8c9; color: #143d31; }
+.keyboard__key.keyboard__key--expected.keyboard__key--playing {
+  background: #6761dc;
+  color: #fff;
+  box-shadow: inset 0 0 0 3px #86e8c9;
+}
+
+.played-staff {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  width: min(100%, 28rem);
+  align-items: center;
+  gap: .5rem;
+  padding: .15rem .65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.played-staff h2 { margin: 0; font-size: .8rem; }
+.played-staff__scroll { overflow-x: auto; }
+.played-staff svg { display: block; margin-inline: auto; fill: var(--ink); }
+.played-staff svg[data-compact] { max-width: 100%; }
+.played-staff svg ellipse { fill: var(--accent); }
+.played-staff__lines { fill: none; stroke: #676b79; stroke-width: .65; }
+.played-staff__ledger { fill: none; stroke: var(--ink); stroke-width: .8; }
+.played-staff__clef { font: 23px "Segoe UI Symbol", "Noto Music", "Apple Symbols", serif; }
+.played-staff__clef--bass { font-size: 19px; }
+.played-staff__accidental { font: 12px "Segoe UI Symbol", "Noto Music", "Apple Symbols", serif; text-anchor: end; }
+.played-staff__octave { font-size: 9px; text-anchor: middle; }

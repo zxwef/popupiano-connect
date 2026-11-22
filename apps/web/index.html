@@ -6,8 +6,67 @@
     <meta name="description" content="Virtual keyboard, chords, scales, and PopuPiano lighting.">
     <title>PopuConnect — Keyboard and Lighting</title>
     <link rel="icon" href="data:,">
+    <style>
+      /* The loading screen is styled before the app stylesheet is available. */
+      .topbar__mark {
+        width: 34px;
+        height: 34px;
+        flex: none;
+        border-radius: 9px;
+        background: #272553;
+        display: flex;
+        gap: 3px;
+        align-items: center;
+        justify-content: center;
+      }
+      .topbar__mark i { width: 4px; height: 12px; background: #d1d1ff; border-radius: 2px; }
+      .topbar__mark i:nth-child(2) { height: 19px; background: #fff; }
+      .app-loading { display: none; }
+      [data-app-loading] > :is(.topbar, .workbench) { visibility: hidden; }
+      [data-app-loading] > .app-loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: .65rem;
+        background: #f6f5f2;
+        color: #20222e;
+        font: 1rem/1.4 Inter, "Segoe UI", sans-serif;
+        text-align: center;
+        padding: 1rem;
+      }
+      .app-loading .topbar__mark { width: 48px; height: 48px; border-radius: 12px; }
+      .app-loading p { margin: 0; color: #555965; font-size: .85rem; }
+      .app-loading__status::before {
+        content: "";
+        display: inline-block;
+        width: .65rem;
+        height: .65rem;
+        margin-inline-end: .4rem;
+        border: 2px solid #d8d6ee;
+        border-top-color: #4945c9;
+        border-radius: 50%;
+        vertical-align: -.1rem;
+      }
+      [data-app-loading="failed"] .app-loading__status::before { display: none; }
+      @media (prefers-reduced-motion: no-preference) {
+        .app-loading__status::before { animation: loading-spin .85s linear infinite; }
+      }
+      @keyframes loading-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
-  <body class="app">
+  <body class="app" data-app-loading="starting">
+    <div class="app-loading">
+      <span class="topbar__mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <strong>PopuConnect</strong>
+      <p class="app-loading__status" id="app-loading-status" role="status">Loading…</p>
+      <noscript>
+        <style>.app-loading__status { display: none; }</style>
+        <p>Enable JavaScript to use PopuConnect.</p>
+      </noscript>
+    </div>
     <header class="topbar">
       <div class="topbar__inner">
         <a class="topbar__brand" href="./">
@@ -17,6 +76,10 @@
         <div class="topbar__device">
           <span class="topbar__status" id="midi-status" role="status">MIDI disconnected</span>
           <button class="button button--primary button--small" type="button" id="connect-midi">Connect MIDI</button>
+          <button class="button button--secondary button--small" type="button" id="open-score" aria-haspopup="dialog">Load MusicXML</button>
+          <button class="button button--secondary button--small icon-button" type="button" id="open-settings" aria-label="Settings" title="Settings" aria-haspopup="dialog">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3h5l.7 2.5 2 .9 2.3-1.1 2.5 4.3-1.9 1.7v2.3l1.9 1.7-2.5 4.3-2.3-1.1-2 .9-.7 2.6h-5l-.7-2.6-2-.9-2.3 1.1L2 15.3l1.9-1.7v-2.3L2 9.6l2.5-4.3 2.3 1.1 2-.9z"/><circle cx="12" cy="12.5" r="3.2"/></svg>
+          </button>
         </div>
       </div>
     </header>
@@ -125,6 +188,13 @@
         </div>
       </div>
     </main>
+    <script>
+      window.addEventListener('load', () => {
+        if (document.body.dataset.appLoading !== 'starting') return;
+        document.body.dataset.appLoading = 'failed';
+        document.getElementById('app-loading-status').textContent = 'Could not start PopuConnect. Reload the page to try again.';
+      }, { once: true });
+    </script>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

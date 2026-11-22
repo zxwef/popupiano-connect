@@ -1,0 +1,131 @@
+<section class="sheet-music" id="sheet-music" aria-labelledby="score-heading" hidden>
+  <header class="sheet-music__toolbar">
+    <div class="sheet-music__title">
+      <h1 id="score-heading"></h1>
+      <p id="score-composer" hidden></p>
+    </div>
+    <div class="sheet-music__navigation" role="group" aria-label="Score navigation">
+      <button class="button button--secondary button--small icon-button" id="score-first" type="button" aria-label="First notes" title="First notes">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v10m8-10-5 5 5 5"/></svg>
+      </button>
+      <button class="button button--secondary button--small icon-button" id="score-previous" type="button" aria-label="Previous notes" title="Previous notes">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>
+      </button>
+      <button class="button button--secondary button--small icon-button" id="score-next" type="button" aria-label="Next notes" title="Next notes">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
+      </button>
+      <label class="sheet-music__measure" title="Jump to a bar">
+        <span>Bar</span>
+        <select class="field__select" id="score-measure" aria-label="Jump to bar" aria-describedby="score-measure-count"></select>
+        <span id="score-measure-count"></span>
+      </label>
+      <button class="button button--secondary button--small icon-button" id="open-full-score" type="button" aria-label="Full score preview" title="Full score preview" aria-haspopup="dialog">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6m4 0h3.5V6m0 4v3.5H10m-4 0H2.5V10"/></svg>
+      </button>
+    </div>
+    <button class="button button--secondary button--small icon-button" id="close-score" type="button" aria-label="Remove score" title="Remove score">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>
+    </button>
+  </header>
+  <div id="score-viewport" class="sheet-music__viewport" role="region" aria-label="Score preview" tabindex="0">
+    <div id="score-window" class="sheet-music__window"></div>
+  </div>
+  <p class="sheet-music__message" id="practice-feedback" role="status" hidden></p>
+</section>
+
+<section class="played-staff" aria-labelledby="played-staff-title" hidden>
+  <h2 id="played-staff-title">Played notes</h2>
+  <div class="played-staff__scroll">
+    <svg id="played-staff" role="img" aria-label="Played notes" height="108"></svg>
+  </div>
+</section>
+
+<dialog class="panel-dialog full-score-dialog" id="full-score-preview" aria-labelledby="full-score-title">
+  <form method="dialog" class="panel-dialog__header">
+    <h2 id="full-score-title">Full score</h2>
+    <button class="button button--secondary button--small" autofocus>Close</button>
+  </form>
+</dialog>
+
+<dialog class="panel-dialog" id="score-upload" aria-labelledby="score-upload-title">
+  <form method="dialog" class="panel-dialog__header">
+    <h2 id="score-upload-title">Load MusicXML</h2>
+    <button class="button button--secondary button--small">Close</button>
+  </form>
+  <label class="field sheet-music__file" id="score-drop">
+    <span class="field__label">Drop a score or choose a file</span>
+    <input type="file" id="score-file" accept=".musicxml,.xml,.mxl" aria-describedby="score-file-status">
+  </label>
+  <p class="sheet-music__message" id="score-file-status" role="status">Supports .musicxml, .xml and .mxl files.</p>
+</dialog>
+
+<dialog class="panel-dialog" id="app-settings" aria-labelledby="app-settings-title">
+  <form method="dialog" class="panel-dialog__header">
+    <h2 id="app-settings-title">Settings</h2>
+    <button class="button button--secondary button--small">Done</button>
+  </form>
+  <div class="panel-dialog__fields">
+    <label class="field">
+      <span class="field__label">Key range</span>
+      <select class="field__select" id="score-range" aria-label="Key range">
+        <option value="extended" selected>With ExtraPiano (53 keys)</option>
+        <option value="main">PopuPiano (29 keys)</option>
+      </select>
+    </label>
+    <label class="sheet-music__option">
+      <input type="checkbox" id="show-chords-scales">
+      Show chords and scales
+    </label>
+    <label class="sheet-music__option">
+      <input type="checkbox" id="show-played-staff">
+      Show played notes on a staff
+    </label>
+    <h3>Score</h3>
+    <div class="panel-dialog__row">
+      <label class="field">
+        <span class="field__label">View</span>
+        <select class="field__select" id="score-layout" aria-label="Score view">
+          <option value="line" selected>Current line</option>
+          <option value="full">Full score</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Zoom</span>
+        <select class="field__select" id="score-zoom" aria-label="Zoom">
+          <option value="0.75">75%</option>
+          <option value="1" selected>100%</option>
+          <option value="1.25">125%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
+        </select>
+      </label>
+    </div>
+    <div class="panel-dialog__row">
+      <label class="field" id="score-part-field" hidden>
+        <span class="field__label">Part</span>
+        <select class="field__select" id="score-part" aria-label="Part"></select>
+      </label>
+      <label class="field" id="score-staff-field" hidden>
+        <span class="field__label">Staff</span>
+        <select class="field__select" id="score-staff" aria-label="Staff"></select>
+      </label>
+    </div>
+    <h3>Practice</h3>
+    <label class="sheet-music__option">
+      <input type="checkbox" id="learning-hints" aria-describedby="learning-hints-description">
+      Learning hints
+    </label>
+    <p class="sheet-music__message" id="learning-hints-description">Shows the score cursor and highlights the on-screen keys. During practice it also lights connected PopuPiano keys.</p>
+    <p class="sheet-music__message" id="practice-lighting-status" role="status" hidden></p>
+    <div class="panel-dialog__fields" id="practice-controls" hidden>
+      <div class="panel-dialog__actions">
+        <button class="button button--primary button--small" id="practice-toggle" type="button">Start practice</button>
+        <button class="button button--secondary button--small" id="practice-repeat" type="button" disabled>Repeat position</button>
+      </div>
+      <p class="sheet-music__message" id="score-expected"></p>
+      <p class="sheet-music__message sheet-music__message--notice" id="score-range-warning" hidden></p>
+      <p class="sheet-music__message" id="practice-status"></p>
+      <p class="sheet-music__message">Play the expected notes in any order to advance.</p>
+    </div>
+  </div>
+</dialog>
