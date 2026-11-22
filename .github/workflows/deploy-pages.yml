@@ -31,7 +31,6 @@ jobs:
           path: apps/web/dist
 
   deploy:
-    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     permissions:

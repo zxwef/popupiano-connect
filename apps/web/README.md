@@ -56,6 +56,6 @@ On a real PopuPiano, verify both MIDI port selections, the exact notes sent by t
 
 ## Deploy to GitHub Pages
 
-In the GitHub repository, open **Settings → Pages** and set **Build and deployment → Source** to **GitHub Actions**. To publish, open **Actions → Deploy PopuConnect Web → Run workflow** and select `master`. [GitHub Pages source configuration](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site#publishing-with-a-custom-github-actions-workflow)
+In the GitHub repository, open **Settings → Pages** and set **Build and deployment → Source** to **GitHub Actions**. To publish, open **Actions → Deploy PopuConnect Web → Run workflow** and select the branch to publish. If the `github-pages` environment restricts deployment branches, add the branch under **Settings → Environments → github-pages** first. The deployment updates the existing Pages site. [GitHub Pages source configuration](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site#publishing-with-a-custom-github-actions-workflow)
 
 Run the Web tests locally before publishing. The workflow installs dependencies, builds the site, and publishes `apps/web/dist`. Vite uses relative URLs so the site works under the repository path. The deployment URL appears in the workflow's `github-pages` environment. [Deployment workflow](../../.github/workflows/deploy-pages.yml)
