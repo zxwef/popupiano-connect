@@ -11,6 +11,7 @@ async function mockConnections(page) {
       async readValue() { window.mock.calls.push('read'); },
       async startNotifications() {
         if (window.mock.failSetup) throw new Error('GATT notifications unavailable');
+        if (window.mock.holdSetup) await new Promise(resolve => { window.mock.finishSetup = resolve; });
         window.mock.calls.push('notify');
       },
       async writeValueWithoutResponse(packet) {
@@ -44,11 +45,15 @@ async function mockConnections(page) {
     };
     const input = { id: 'in', name: 'PopuPiano', state: 'connected', async close() {} };
     const access = { inputs: new Map([['in', input]]), outputs: new Map() };
-    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => access });
+    Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => {
+      if (window.mock.holdMidi) await new Promise(resolve => { window.mock.finishMidi = resolve; });
+      return access;
+    } });
     Object.defineProperty(navigator, 'bluetooth', { value: {
       async requestDevice(options) {
         if (!options.optionalServices.includes('03b80e5a-ede8-4b33-a751-6ce34ec4c700')) throw new Error('Missing permission');
         if (window.mock.cancel) throw new DOMException('Cancelled', 'NotFoundError');
+        if (window.mock.holdPicker) await new Promise(resolve => { window.mock.finishPicker = resolve; });
         return device;
       },
     } });
@@ -61,6 +66,65 @@ async function mockConnections(page) {
     };
   });
 }
+
+test('a stalled Bluetooth picker leaves Web MIDI available and ignores a late selection', async ({ page }) => {
+  await mockConnections(page);
+  await page.goto('./');
+  await page.evaluate(() => { window.mock.holdPicker = true; });
+  const bluetooth = page.getByRole('button', { name: 'Connect Bluetooth' });
+  await bluetooth.click();
+  await expect(page.locator('#connection-feedback')).toContainText('Waiting for the browser');
+  await page.getByRole('button', { name: 'Connect MIDI' }).click();
+  await expect(page.locator('#midi-status')).toHaveText('MIDI input selected');
+  await expect(bluetooth).toBeEnabled();
+  await page.evaluate(() => window.mock.finishPicker());
+  await page.waitForFunction(() => window.mock.input.onmidimessage && !window.mock.device.gatt.connected);
+  await expect(page.locator('#connection-feedback')).toBeHidden();
+});
+
+test('browser permission and Bluetooth setup time out and allow another attempt', async ({ page }) => {
+  await mockConnections(page);
+  await page.clock.install();
+  await page.goto('./');
+  const bluetooth = page.getByRole('button', { name: 'Connect Bluetooth' });
+  const midi = page.getByRole('button', { name: 'Connect MIDI' });
+  const feedback = page.locator('#connection-feedback');
+
+  await page.evaluate(() => { window.mock.holdMidi = true; });
+  await midi.click();
+  await expect(feedback).toContainText('Waiting for MIDI permission');
+  await expect(bluetooth).toBeEnabled();
+  await page.clock.fastForward(30000);
+  await expect(feedback).toContainText('MIDI permission timed out');
+  await expect(midi).toBeEnabled();
+
+  await page.evaluate(() => { window.mock.holdPicker = true; });
+  await bluetooth.click();
+  await expect(feedback).toContainText('Waiting for the browser');
+  await page.clock.fastForward(30000);
+  await expect(feedback).toContainText('picker did not respond');
+  await expect(bluetooth).toBeEnabled();
+
+  await page.evaluate(() => { window.mock.holdPicker = false; window.mock.holdSetup = true; });
+  await bluetooth.click();
+  await page.waitForFunction(() => Boolean(window.mock.finishSetup));
+  await expect(feedback).toContainText('Connecting to PopuPiano');
+  await page.clock.fastForward(15000);
+  await expect(feedback).toContainText('Bluetooth connection timed out');
+  await expect(midi).toBeEnabled();
+  expect(await page.evaluate(() => window.mock.device.gatt.connected)).toBe(false);
+
+  await page.evaluate(() => { window.mock.holdSetup = false; });
+  await bluetooth.click();
+  await expect(page.locator('#midi-status')).toContainText('Bluetooth connected');
+  await page.evaluate(() => {
+    window.mock.finishSetup();
+    window.mock.finishPicker();
+    window.mock.finishMidi();
+  });
+  await expect(page.locator('#midi-status')).toContainText('Bluetooth connected');
+  expect(await page.evaluate(() => window.mock.device.gatt.connected)).toBe(true);
+});
 
 test('Bluetooth notes play piano samples, advance practice and send ordered SysEx to both modules', async ({ page }) => {
   await mockConnections(page);

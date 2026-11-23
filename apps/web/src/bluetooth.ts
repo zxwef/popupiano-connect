@@ -21,6 +21,7 @@ export async function connectBluetoothPiano(
   device: BluetoothDevice,
   receive: (message: Uint8Array) => void,
   onDisconnect: () => void,
+  signal: AbortSignal,
 ): Promise<BluetoothMidiConnection> {
   const gatt = device.gatt;
   if (!gatt) throw new Error('This device has no Bluetooth GATT server.');
@@ -41,15 +42,26 @@ export async function connectBluetoothPiano(
     detach();
     onDisconnect();
   }
+  function cancelSetup(): void {
+    detach();
+    gatt?.disconnect();
+  }
+  signal.throwIfAborted();
+  signal.addEventListener('abort', cancelSetup, { once: true });
   device.addEventListener('gattserverdisconnected', disconnected);
   try {
     const server = await gatt.connect();
+    signal.throwIfAborted();
     const service = await server.getPrimaryService(midiService);
+    signal.throwIfAborted();
     const io = await service.getCharacteristic(midiCharacteristic);
+    signal.throwIfAborted();
     characteristic = io;
     if (io.properties.read) await io.readValue();
+    signal.throwIfAborted();
     io.addEventListener('characteristicvaluechanged', notification);
     await io.startNotifications();
+    signal.throwIfAborted();
     if (!active || !gatt.connected) throw new Error('The keyboard disconnected during setup.');
 
     let output: BluetoothLightingOutput | undefined;
@@ -89,7 +101,9 @@ export async function connectBluetoothPiano(
     };
   } catch (error) {
     detach();
-    if (gatt.connected) gatt.disconnect();
+    if (!signal.aborted && gatt.connected) gatt.disconnect();
     throw error;
+  } finally {
+    signal.removeEventListener('abort', cancelSetup);
   }
 }

@@ -48,6 +48,7 @@ let highlightedNotes: number[] = [];
 let midiAccess: MIDIAccess | undefined;
 let bluetooth: BluetoothMidiConnection | undefined;
 let connectionBusy = false;
+let connectionPrompt: { transport: 'MIDI' | 'Bluetooth'; controller: AbortController } | undefined;
 let switchingTransport = false;
 let outputId = '';
 let inputId: string | undefined;
@@ -386,8 +387,8 @@ function updateMidiButtons(): void {
   const canLight = Boolean(selectedOutput());
   workbench.toggleAttribute('data-lighting-output', canLight);
   controls.apply.disabled = controls.off.disabled = sendInProgress || !canLight;
-  controls.connect.disabled = connectionBusy || Boolean(bluetooth);
-  controls.bluetooth.disabled = connectionBusy || sendInProgress;
+  controls.connect.disabled = connectionBusy || Boolean(bluetooth) || connectionPrompt?.transport === 'MIDI';
+  controls.bluetooth.disabled = connectionBusy || sendInProgress || connectionPrompt?.transport === 'Bluetooth';
   controls.bluetooth.textContent = bluetooth ? 'Disconnect Bluetooth' : 'Connect Bluetooth';
 }
 
@@ -399,6 +400,49 @@ function showLightsStatus(message: string): void {
 function connectionFeedback(message: string): void {
   controls.connectionFeedback.textContent = message;
   controls.connectionFeedback.hidden = !message;
+}
+
+async function waitForBrowser<T>(request: Promise<T>, milliseconds: number, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  let timer: number | undefined;
+  let cancel: (() => void) | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new DOMException('The browser did not respond in time.', 'TimeoutError')), milliseconds);
+    if (signal) {
+      cancel = () => reject(signal.reason);
+      signal.addEventListener('abort', cancel, { once: true });
+    }
+  });
+  try {
+    return await Promise.race([request, deadline]);
+  } finally {
+    window.clearTimeout(timer);
+    if (cancel) signal?.removeEventListener('abort', cancel);
+  }
+}
+
+async function requestBrowserAccess<T>(
+  transport: 'MIDI' | 'Bluetooth', request: (signal: AbortSignal) => Promise<T>,
+): Promise<T | undefined> {
+  connectionPrompt?.controller.abort();
+  const prompt = { transport, controller: new AbortController() };
+  connectionPrompt = prompt;
+  updateMidiButtons();
+  connectionFeedback(transport === 'Bluetooth'
+    ? 'Waiting for the browser’s Bluetooth device picker. Select PopuPiano there.'
+    : 'Waiting for MIDI permission. Check your browser’s permission prompt.');
+  try {
+    const result = await request(prompt.controller.signal);
+    prompt.controller.signal.throwIfAborted();
+    return result;
+  } catch (error) {
+    if (!prompt.controller.signal.aborted) throw error;
+  } finally {
+    if (connectionPrompt === prompt) {
+      connectionPrompt = undefined;
+      updateMidiButtons();
+    }
+  }
 }
 
 async function refreshOutputs(): Promise<boolean> {
@@ -435,48 +479,66 @@ async function refreshOutputs(): Promise<boolean> {
 }
 
 controls.connect.addEventListener('click', async () => {
-  if (connectionBusy || bluetooth) return;
+  if (connectionBusy || bluetooth || connectionPrompt?.transport === 'MIDI') return;
   connectionFeedback('');
   if (!navigator.requestMIDIAccess) {
     controls.midiStatus.textContent = 'Web MIDI unavailable';
     connectionFeedback('Open the site over HTTPS or localhost in a browser that supports Web MIDI.');
     return;
   }
-  connectionBusy = true;
-  updateMidiButtons();
   void enableSound().catch(audioError);
   try {
     if (!midiAccess) {
-      midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+      midiAccess = await requestBrowserAccess('MIDI', signal =>
+        waitForBrowser(navigator.requestMIDIAccess({ sysex: true }), 30000, signal));
+      if (!midiAccess) return;
       midiAccess.onstatechange = () => {
         if (!bluetooth && !switchingTransport) void refreshOutputs();
       };
+    } else {
+      connectionPrompt?.controller.abort();
     }
+    connectionFeedback('');
     controls.connect.textContent = 'Refresh ports';
     showLightsStatus('');
-    await refreshOutputs();
-  } catch {
+    void refreshOutputs();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      connectionFeedback('MIDI permission timed out. Close any pending browser prompt and try again.');
+      return;
+    }
     controls.midiStatus.textContent = 'MIDI access denied';
     connectionFeedback('Allow MIDI SysEx access in the site settings.');
-  } finally {
-    connectionBusy = false;
-    updateMidiButtons();
   }
 });
 
 controls.bluetooth.addEventListener('click', async () => {
-  if (connectionBusy || sendInProgress) return;
+  if (connectionBusy || sendInProgress || connectionPrompt?.transport === 'Bluetooth') return;
   if (!navigator.bluetooth) {
     connectionFeedback('Direct Bluetooth requires Web Bluetooth. Open the site over HTTPS or localhost in Chrome or Edge with Bluetooth enabled.');
     return;
   }
-  connectionBusy = true;
-  updateMidiButtons();
-  connectionFeedback('');
   void enableSound().catch(audioError);
   let device: BluetoothDevice | undefined;
+  let changingRoute = false;
   try {
-    if (!bluetooth) device = await chooseBluetoothPiano();
+    if (!bluetooth) {
+      device = await requestBrowserAccess('Bluetooth', async signal => {
+        try {
+          return await waitForBrowser(chooseBluetoothPiano(), 30000, signal);
+        } catch (error) {
+          if (!(error instanceof DOMException) || error.name !== 'NotFoundError' || /disabled|blocked/i.test(error.message)) throw error;
+          const availability = navigator.bluetooth.getAvailability?.();
+          if (availability && await waitForBrowser(availability, 1500, signal).catch(() => undefined) === false) {
+            throw new Error('The browser could not access a Bluetooth adapter. Check that Bluetooth is on in Windows.');
+          }
+          throw error;
+        }
+      });
+      if (!device) return;
+    }
+    changingRoute = connectionBusy = true;
+    connectionFeedback('');
     switchingTransport = true;
     releaseMidiInput();
     const cleared = await refreshOutputs();
@@ -491,7 +553,9 @@ controls.bluetooth.addEventListener('click', async () => {
       for (const output of midiAccess?.outputs.values() ?? []) {
         if (output.connection === 'open') await output.close();
       }
-      bluetooth = await connectBluetoothPiano(device, data => {
+      connectionFeedback('Connecting to ' + (device.name || 'the selected keyboard') + '…');
+      const setup = new AbortController();
+      const connection = connectBluetoothPiano(device, data => {
         if (bluetooth && !switchingTransport) handleMidiMessage(data);
       }, () => {
         if (!bluetooth) return;
@@ -499,22 +563,34 @@ controls.bluetooth.addEventListener('click', async () => {
         releaseMidiInput();
         connectionFeedback('Bluetooth disconnected. Turn on the keyboard and select Connect Bluetooth to reconnect.');
         void refreshOutputs();
-      });
+      }, setup.signal);
+      try {
+        bluetooth = await waitForBrowser(connection, 15000);
+        connectionFeedback('');
+      } catch (error) {
+        setup.abort();
+        throw error;
+      }
     }
   } catch (error) {
-    if (!device && error instanceof DOMException && error.name === 'NotFoundError') {
-      const available = await navigator.bluetooth.getAvailability?.().catch(() => undefined);
-      connectionFeedback(available === false
-        ? 'The browser reports that Bluetooth is unavailable. Turn on the Bluetooth adapter or connect over USB with Connect MIDI.'
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      connectionFeedback(device
+        ? 'Bluetooth connection timed out. Turn the keyboard off and back on, then try again.'
+        : 'The Bluetooth device picker did not respond. Close any pending browser prompt and try again.');
+    } else if (!device && error instanceof DOMException && error.name === 'NotFoundError') {
+      connectionFeedback(/disabled|blocked/i.test(error.message)
+        ? 'Web Bluetooth is disabled or blocked in this browser. Try Chrome or Edge.'
         : 'No keyboard selected. Turn on Bluetooth and make PopuPiano discoverable to try again.');
     } else {
       connectionFeedback('Could not connect via Bluetooth. Check Bluetooth permissions, close other apps using the piano, and try again. ' +
         (error instanceof Error ? error.message : ''));
     }
   } finally {
-    switchingTransport = false;
-    connectionBusy = false;
-    await refreshOutputs();
+    if (changingRoute) {
+      switchingTransport = false;
+      connectionBusy = false;
+      void refreshOutputs();
+    }
   }
 });
 controls.output.addEventListener('change', () => {
