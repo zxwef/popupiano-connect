@@ -76,12 +76,14 @@
         <div class="topbar__device">
           <span class="topbar__status" id="midi-status" role="status">MIDI disconnected</span>
           <button class="button button--primary button--small" type="button" id="connect-midi">Connect MIDI</button>
+          <button class="button button--secondary button--small" type="button" id="connect-bluetooth">Connect Bluetooth</button>
           <button class="button button--secondary button--small" type="button" id="open-score" aria-haspopup="dialog">Load MusicXML</button>
           <button class="button button--secondary button--small icon-button" type="button" id="open-settings" aria-label="Settings" title="Settings" aria-haspopup="dialog">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3h5l.7 2.5 2 .9 2.3-1.1 2.5 4.3-1.9 1.7v2.3l1.9 1.7-2.5 4.3-2.3-1.1-2 .9-.7 2.6h-5l-.7-2.6-2-.9-2.3 1.1L2 15.3l1.9-1.7v-2.3L2 9.6l2.5-4.3 2.3 1.1 2-.9z"/><circle cx="12" cy="12.5" r="3.2"/></svg>
           </button>
         </div>
       </div>
+      <p class="topbar__feedback" id="connection-feedback" role="status" hidden></p>
     </header>
 
     <main class="workbench">

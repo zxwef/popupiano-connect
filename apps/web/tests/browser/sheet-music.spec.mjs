@@ -648,7 +648,7 @@ test('uses the selected MIDI ports, ignores duplicate Note On, and clears only t
     window.AudioContext = class {
       constructor() { throw new Error('Test audio is unavailable'); }
     };
-    const inputs = new Map([['in', { id: 'in', name: 'PopuPiano Input', state: 'connected' }]]);
+    const inputs = new Map([['in', { id: 'in', name: 'PopuPiano Input', state: 'connected', async close() {} }]]);
     const frames = [];
     let failNextOpen = false;
     const outputs = new Map(['one', 'two'].map(id => [id, {

@@ -1,6 +1,7 @@
 import './styles.css';
 import { chordNotes, chords, firstNote, lastNote, noteName, pitchClasses, scaleNotes, scales } from './music';
-import { lightsOffFrames, patternFrames, popuPianoPorts, sendFrames } from './lighting';
+import { lightsOffFrames, patternFrames, popuPianoPorts, sendFrames, type LightingOutput } from './lighting';
+import { chooseBluetoothPiano, connectBluetoothPiano, type BluetoothMidiConnection } from './bluetooth';
 import { readNoteEvent } from './midi-input';
 import { enableSound, holdNote, playNotes } from './sound';
 import { mountSheetMusic } from './sheet-music/sheet-music';
@@ -25,6 +26,8 @@ const controls = {
   noteColors: document.querySelector<HTMLDivElement>('#note-colors')!,
   resetColors: document.querySelector<HTMLButtonElement>('#reset-colors')!,
   connect: document.querySelector<HTMLButtonElement>('#connect-midi')!,
+  bluetooth: document.querySelector<HTMLButtonElement>('#connect-bluetooth')!,
+  connectionFeedback: document.querySelector<HTMLParagraphElement>('#connection-feedback')!,
   midiStatus: document.querySelector<HTMLSpanElement>('#midi-status')!,
   output: document.querySelector<HTMLSelectElement>('#output')!,
   outputField: document.querySelector<HTMLLabelElement>('#output-field')!,
@@ -43,13 +46,17 @@ const choices = { chord: 0, scale: 0, inversion: 0 };
 let scheduledNotes: number[] = [];
 let highlightedNotes: number[] = [];
 let midiAccess: MIDIAccess | undefined;
+let bluetooth: BluetoothMidiConnection | undefined;
+let connectionBusy = false;
+let switchingTransport = false;
 let outputId = '';
 let inputId: string | undefined;
 let inputPort: MIDIInput | undefined;
 let sendInProgress = false;
 const pianoKeys = new Map<number, HTMLButtonElement>();
 const playingTimers = new Map<number, number>();
-const heldKeys = new Map<string, {note: number; release?: () => void}>();
+interface HeldKey { note: number; release?: (fast?: boolean) => void }
+const heldKeys = new Map<string, HeldKey>();
 const noteColors = new Map<number, string>();
 const notePickers = new Map<number, HTMLInputElement>();
 const computerKeys = 'awsedftgyhujk';
@@ -60,19 +67,23 @@ function paintPressed(note: number): void {
   pianoKeys.get(note)?.classList.toggle('keyboard__key--playing', active);
 }
 
-function releaseKey(source: string): void {
+function releaseKey(source: string, fast = false): void {
   const held = heldKeys.get(source);
   if (!held) return;
   heldKeys.delete(source);
-  held.release?.();
+  held.release?.(fast);
   paintPressed(held.note);
   updatePlayedStaff();
 }
 
-function releaseKeys(prefix: string): void {
+function releaseKeys(prefix: string, fast = false): void {
   for (const source of heldKeys.keys()) {
-    if (source.startsWith(prefix)) releaseKey(source);
+    if (source.startsWith(prefix)) releaseKey(source, fast);
   }
+}
+
+function releaseMidiInput(): void {
+  releaseKeys('midi:', true);
 }
 
 function audioError(): void {
@@ -84,14 +95,15 @@ function pressKey(source: string, note: number, velocity: number, duration?: num
   const newPress = duration !== undefined || heldKeys.get(source)?.note !== note;
   releaseKey(source);
   controls.audioStatus.hidden = true;
-  const held: {note: number; release?: () => void} = { note };
+  const held: HeldKey = { note };
   heldKeys.set(source, held);
   paintPressed(note);
   updatePlayedStaff();
-  void holdNote(note, velocity).then(release => {
-    if (heldKeys.get(source) === held) held.release = release;
-    else release();
-  }).catch(audioError);
+  try {
+    held.release = holdNote(note, velocity, audioError);
+  } catch {
+    audioError();
+  }
   if (duration !== undefined) {
     window.setTimeout(() => {
       if (heldKeys.get(source) === held) releaseKey(source);
@@ -342,34 +354,41 @@ void sheetMusic.ready.then(() => {
   document.body.removeAttribute('data-app-loading');
 });
 
-function selectedOutput(): MIDIOutput | undefined {
+function selectedOutput(): LightingOutput | undefined {
+  if (switchingTransport) return;
+  if (bluetooth) return bluetooth.output;
   const output = midiAccess?.outputs.get(outputId);
   return output ? popuPianoPorts([output])[0] : undefined;
 }
 
-function handleMidiMessage(event: MIDIMessageEvent): void {
-  const noteEvent = readNoteEvent(event.data);
+function handleMidiMessage(data: ArrayLike<number> | null): void {
+  const noteEvent = readNoteEvent(data);
   if (!noteEvent) return;
   const prefix = 'midi:' + noteEvent.channel + ':';
-  if (noteEvent.kind === 'releaseChannel') releaseKeys(prefix);
+  if (noteEvent.kind === 'releaseChannel') releaseKeys(prefix, data?.[1] === 120);
   else if (noteEvent.kind === 'release') releaseKey(prefix + noteEvent.note);
   else pressKey(prefix + noteEvent.note, noteEvent.note, noteEvent.velocity);
 }
 
-function listenOn(input: MIDIInput | undefined): void {
+async function listenOn(input: MIDIInput | undefined): Promise<void> {
   if (inputPort === input) return;
   const old = inputPort;
   inputPort = input;
   if (old) {
     old.onmidimessage = null;
-    releaseKeys('midi:');
-    void old.close().catch(() => {});
+    releaseMidiInput();
   }
-  if (input) input.onmidimessage = handleMidiMessage;
+  if (input) input.onmidimessage = event => handleMidiMessage(event.data);
+  if (old) await old.close().catch(() => {});
 }
 
 function updateMidiButtons(): void {
-  controls.apply.disabled = controls.off.disabled = sendInProgress || !selectedOutput();
+  const canLight = Boolean(selectedOutput());
+  workbench.toggleAttribute('data-lighting-output', canLight);
+  controls.apply.disabled = controls.off.disabled = sendInProgress || !canLight;
+  controls.connect.disabled = connectionBusy || Boolean(bluetooth);
+  controls.bluetooth.disabled = connectionBusy || sendInProgress;
+  controls.bluetooth.textContent = bluetooth ? 'Disconnect Bluetooth' : 'Connect Bluetooth';
 }
 
 function showLightsStatus(message: string): void {
@@ -377,10 +396,14 @@ function showLightsStatus(message: string): void {
   controls.lightsStatus.hidden = !message;
 }
 
-function refreshOutputs(): void {
-  if (!midiAccess) return;
-  const outputs = popuPianoPorts(midiAccess.outputs.values());
-  const inputs = popuPianoPorts(midiAccess.inputs.values());
+function connectionFeedback(message: string): void {
+  controls.connectionFeedback.textContent = message;
+  controls.connectionFeedback.hidden = !message;
+}
+
+async function refreshOutputs(): Promise<boolean> {
+  const outputs = midiAccess ? popuPianoPorts(midiAccess.outputs.values()) : [];
+  const inputs = midiAccess ? popuPianoPorts(midiAccess.inputs.values()) : [];
   if (!outputId && outputs.length === 1) outputId = outputs[0].id;
   if (inputId === undefined && inputs.length === 1) inputId = inputs[0].id;
   for (const [select, ports, id, placeholder] of [
@@ -392,41 +415,106 @@ function refreshOutputs(): void {
   }
   controls.outputField.hidden = outputs.length === 0;
   controls.inputField.hidden = inputs.length === 0;
-  controls.ports.hidden = !outputs.length && !inputs.length;
-  listenOn(inputs.find(input => input.id === inputId));
-  sheetMusic.outputChanged(outputs);
+  controls.ports.hidden = switchingTransport || Boolean(bluetooth) || (!outputs.length && !inputs.length);
+  const inputClosed = listenOn(bluetooth || switchingTransport ? undefined : inputs.find(input => input.id === inputId));
+  const availableOutputs = bluetooth ? (bluetooth.output ? [bluetooth.output] : []) : outputs;
+  const lightsUpdated = sheetMusic.outputChanged(availableOutputs);
   const selected = selectedOutput();
-  controls.midiStatus.textContent = selected && inputPort ? 'MIDI input and output selected'
+  controls.midiStatus.textContent = switchingTransport ? 'Switching connection…'
+    : bluetooth ? bluetooth.name + (selected ? ' · Bluetooth connected' : ' · Bluetooth input only')
+    : selected && inputPort ? 'MIDI input and output selected'
     : selected ? 'MIDI output selected' : inputPort ? 'MIDI input selected'
-    : outputs.length || inputs.length ? 'Select a MIDI port' : 'PopuPiano not found';
-  controls.midiStatus.classList.toggle('topbar__status--ready', Boolean(selected || inputPort));
+    : outputs.length || inputs.length ? 'Select a MIDI port' : midiAccess ? 'PopuPiano not found' : 'MIDI disconnected';
+  controls.midiStatus.classList.toggle('topbar__status--ready', !switchingTransport && Boolean(selected || inputPort || bluetooth));
   controls.lightsHint.textContent = selected
     ? 'The pattern applies to the 29 main keys. Turn off lights also clears ExtraPiano.'
     : 'Turn on PopuPiano and connect it to the device running this browser.';
   updateMidiButtons();
+  const [, lightsCleared] = await Promise.all([inputClosed, lightsUpdated]);
+  return lightsCleared;
 }
 
 controls.connect.addEventListener('click', async () => {
+  if (connectionBusy || bluetooth) return;
+  connectionFeedback('');
   if (!navigator.requestMIDIAccess) {
     controls.midiStatus.textContent = 'Web MIDI unavailable';
-    showLightsStatus('Use a browser that supports Web MIDI and open the site over HTTPS or on localhost.');
+    connectionFeedback('Open the site over HTTPS or localhost in a browser that supports Web MIDI.');
     return;
   }
-  controls.connect.disabled = true;
+  connectionBusy = true;
+  updateMidiButtons();
   void enableSound().catch(audioError);
   try {
     if (!midiAccess) {
       midiAccess = await navigator.requestMIDIAccess({ sysex: true });
-      midiAccess.onstatechange = refreshOutputs;
+      midiAccess.onstatechange = () => {
+        if (!bluetooth && !switchingTransport) void refreshOutputs();
+      };
     }
     controls.connect.textContent = 'Refresh ports';
     showLightsStatus('');
-    refreshOutputs();
+    await refreshOutputs();
   } catch {
     controls.midiStatus.textContent = 'MIDI access denied';
-    showLightsStatus('Allow MIDI SysEx access in the site settings.');
+    connectionFeedback('Allow MIDI SysEx access in the site settings.');
   } finally {
-    controls.connect.disabled = false;
+    connectionBusy = false;
+    updateMidiButtons();
+  }
+});
+
+controls.bluetooth.addEventListener('click', async () => {
+  if (connectionBusy || sendInProgress) return;
+  if (!navigator.bluetooth) {
+    connectionFeedback('Direct Bluetooth requires Web Bluetooth. Open the site over HTTPS or localhost in Chrome or Edge with Bluetooth enabled.');
+    return;
+  }
+  connectionBusy = true;
+  updateMidiButtons();
+  connectionFeedback('');
+  void enableSound().catch(audioError);
+  let device: BluetoothDevice | undefined;
+  try {
+    if (!bluetooth) device = await chooseBluetoothPiano();
+    switchingTransport = true;
+    releaseMidiInput();
+    const cleared = await refreshOutputs();
+    if (bluetooth) {
+      const lightsCleared = cleared || await refreshOutputs();
+      bluetooth?.disconnect();
+      bluetooth = undefined;
+      if (!lightsCleared) {
+        connectionFeedback('Bluetooth disconnected. The practice lights may still be on. Reconnect and select Turn off lights.');
+      }
+    } else if (device) {
+      for (const output of midiAccess?.outputs.values() ?? []) {
+        if (output.connection === 'open') await output.close();
+      }
+      bluetooth = await connectBluetoothPiano(device, data => {
+        if (bluetooth && !switchingTransport) handleMidiMessage(data);
+      }, () => {
+        if (!bluetooth) return;
+        bluetooth = undefined;
+        releaseMidiInput();
+        connectionFeedback('Bluetooth disconnected. Turn on the keyboard and select Connect Bluetooth to reconnect.');
+        void refreshOutputs();
+      });
+    }
+  } catch (error) {
+    if (!device && error instanceof DOMException && error.name === 'NotFoundError') {
+      const available = await navigator.bluetooth.getAvailability?.().catch(() => undefined);
+      connectionFeedback(available === false
+        ? 'The browser reports that Bluetooth is unavailable. Turn on the Bluetooth adapter or connect over USB with Connect MIDI.'
+        : 'No keyboard selected. Turn on Bluetooth and make PopuPiano discoverable to try again.');
+    } else {
+      connectionFeedback('Could not connect via Bluetooth. Check Bluetooth permissions, close other apps using the piano, and try again. ' +
+        (error instanceof Error ? error.message : ''));
+    }
+  } finally {
+    switchingTransport = false;
+    connectionBusy = false;
+    await refreshOutputs();
   }
 });
 controls.output.addEventListener('change', () => {

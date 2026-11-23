@@ -1,10 +1,10 @@
-import { mainPianoNotes, patternFrames, sendFinalFrame, sendFrames } from '../lighting';
+import { mainPianoNotes, patternFrames, sendFinalFrame, sendFrames, type LightingOutput } from '../lighting';
 
 export function createPracticeLights(showError: (message: string) => void) {
   const color = '#63dfbe';
   const clearFrame = patternFrames([], color)[0];
   const storageKey = 'popuconnect.practiceLightOutputs';
-  let connectedOutputs = new Map<string, MIDIOutput>();
+  let connectedOutputs = new Map<string, LightingOutput>();
   const possiblyLit = new Set<string>();
   try {
     const stored: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? '[]');
@@ -14,11 +14,12 @@ export function createPracticeLights(showError: (message: string) => void) {
   } catch {
     // Keep tracking writes in memory when session storage is unavailable.
   }
-  let requested: { output: MIDIOutput; notes: number[]; key: string } | undefined;
+  let requested: { output: LightingOutput; notes: number[]; key: string } | undefined;
   let sent: typeof requested;
   let sends = new AbortController();
   let pending = false;
   let sending = false;
+  let flushed = Promise.resolve();
 
   function rememberLitOutputs(): void {
     try {
@@ -72,16 +73,16 @@ export function createPracticeLights(showError: (message: string) => void) {
     for (const id of possiblyLit) {
       const output = connectedOutputs.get(id);
       if (!output || output.state !== 'connected') continue;
-      try {
-        sendFinalFrame(output, clearFrame);
-      } catch {
-        // Retry when the port is available again.
-      }
+      void sendFinalFrame(output, clearFrame).catch(() => {});
     }
     // Keep the IDs across reload because a browser may drop queued writes on unload.
   });
 
-  return (output: MIDIOutput | undefined, notes: readonly number[], outputs?: readonly MIDIOutput[]): void => {
+  function needsClear(): boolean {
+    return [...possiblyLit].some(id => id !== requested?.output.id && connectedOutputs.get(id)?.state === 'connected');
+  }
+
+  return async (output: LightingOutput | undefined, notes: readonly number[], outputs?: readonly LightingOutput[]): Promise<boolean> => {
     if (outputs) connectedOutputs = new Map(outputs.map(port => [port.id, port]));
 
     const mapped = mainPianoNotes.filter(note => notes.includes(note));
@@ -93,9 +94,9 @@ export function createPracticeLights(showError: (message: string) => void) {
     } else {
       requested = undefined;
     }
-    if (requested !== sent || [...possiblyLit].some(id => id !== requested?.output.id && connectedOutputs.has(id))) {
-      pending = true;
-    }
-    if (!sending && pending) void flush();
+    if (requested !== sent || needsClear()) pending = true;
+    if (!sending && pending) flushed = flush();
+    await flushed;
+    return !needsClear();
   };
 }

@@ -5,7 +5,7 @@ Tools for the PopuPiano MIDI keyboard.
 | Directory | Purpose |
 | --- | --- |
 | [apps/desktop](apps/desktop/README.md) | C# / WinForms application for USB and Bluetooth MIDI, lighting, diagnostics, and battery checks. |
-| [apps/web](apps/web/README.md) | Virtual keyboard, chords, scales, and Web MIDI lighting. Static build for GitHub Pages. |
+| [apps/web](apps/web/README.md) | Sampled piano, MusicXML practice, and PopuPiano input and lighting over Web MIDI or direct Bluetooth. Static build for GitHub Pages. |
 | [docs/protocols](docs/protocols/README.md) | Verified SysEx commands and lighting behavior. |
 | [docs/research](docs/research/README.md) | Reference documentation and third-party sources. |
 | [tests/fixtures](tests/fixtures/README.md) | Shared MIDI test data. |
@@ -15,6 +15,7 @@ Tools for the PopuPiano MIDI keyboard.
 ```powershell
 dotnet build -c Release
 dotnet test -c Release --no-build
+git submodule update --init apps/web/vendor/tonejs-audio
 npm.cmd --prefix apps/web ci
 npm.cmd --prefix apps/web run test
 npm.cmd --prefix apps/web run build

@@ -9,6 +9,7 @@ The PopuMusic developer site is a reference for workflows. [PopuPiano developer 
 From `apps/web`, use Node.js 22.12 or later and run the following in PowerShell.
 
 ```powershell
+git submodule update --init vendor/tonejs-audio
 npm.cmd ci
 npm.cmd run test
 npm.cmd run dev
@@ -19,6 +20,10 @@ Tests cover intervals, inversions, MIDI Note On and Off, multicolor palettes, Sy
 ## Connect PopuPiano
 
 Open the site over HTTPS or on localhost in a browser with Web MIDI. Connect PopuPiano to the computer running the browser. Select **Connect MIDI**, allow SysEx access, and choose the input and output ports if multiple ports are available. The input plays notes at their MIDI velocity and highlights held keys on screen. Select **No MIDI input** to disable incoming notes. If the browser lists a custom port name, restore its original PopuPiano name in your MIDI settings. [Web MIDI API](https://www.w3.org/TR/webmidi/)
+
+For a direct wireless connection, turn on the keyboard and Bluetooth on the computer. Open the site in Chrome or Edge on Windows, select **Connect Bluetooth**, and choose PopuPiano in the browser picker. The app reads notes from both keyboard modules through the standard BLE MIDI service. A writable device named PopuPiano also accepts lighting commands. If another app holds the keyboard, close that connection and try again. **Disconnect Bluetooth** returns to the previously selected system MIDI ports. After a wireless dropout, select **Connect Bluetooth** again. [Web Bluetooth](https://developer.chrome.com/docs/capabilities/bluetooth)
+
+Keys and previews use 23 locally hosted Salamander Grand Piano recordings from the pinned Tone.js audio submodule. Each recording loads on first use. While it loads, a live key sounds immediately using a nearby cached recording or a synthesized tone. A held key blends into the recording at the elapsed playback position. [Recording credits and license](public/audio/piano/ATTRIBUTION.txt)
 
 **Light up notes** sends the palette and the pattern to the 29-key main module. **Individual note colors** lets you assign a color to each pitch class across octaves. **Turn off lights** sends lights-off frames to the main module and ExtraPiano. **SysEx commands** shows the current pattern as hexadecimal bytes.
 
@@ -52,7 +57,7 @@ npm.cmd run test:browser
 
 Set `POPUCONNECT_TEST_BROWSER_CHANNEL` to `msedge` if Microsoft Edge is already installed. The browser tests exercise the production build under `/PopuConnect/`, including local loading, SVG and cursor movement, practice input, and a mock MIDI device. For a manual check, try a longer score exported from your notation editor and navigate between systems at mobile and desktop widths.
 
-On a real PopuPiano, verify both MIDI port selections, the exact notes sent by the magnetic extension, and the main LED hints while starting, pausing, changing the output, and leaving the score. Run those checks over USB and Bluetooth where the browser lists the instrument.
+The Bluetooth tests use a simulated keyboard to exercise notes, practice, lighting, disconnection, and switching back to Web MIDI. To check a physical keyboard, unplug USB, use **Connect Bluetooth**, play one note on each module, then release both. Start practice with **Learning hints** and confirm the main module follows the score. Use **Turn off lights** to check both modules. Repeat over USB with **Connect MIDI** to compare the two routes.
 
 ## Deploy to GitHub Pages
 

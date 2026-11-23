@@ -1,0 +1,8 @@
+Salamander Grand Piano recordings by Alexander Holm (Yamaha C5).
+Licensed under Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+https://creativecommons.org/licenses/by/3.0/
+
+Original sample collection: https://archive.org/details/SalamanderGrandPianoV3
+MP3 distribution: https://github.com/Tonejs/audio/tree/efd8296360f9526e379bfbe5c1698ff54d6a1d34/salamander
+
+PopuConnect includes a subset of the MP3 recordings. Playback adjusts pitch and volume and adds room reverb.

@@ -45,6 +45,7 @@ test('opens the output and keeps palette applied before lamps and clear', async 
   const off = lightsOffFrames();
   await sendFrames(output, pattern);
   await sendFrames(output, off);
+  assert.ok(performance.now() >= sends.at(-1).at - 1);
   assert.deepEqual(sends.map(entry => entry.frame), [...pattern, ...off]);
   for (let index = 1; index < sends.length; index++) {
     assert.ok(sends[index].at >= sends[index - 1].at + 25);

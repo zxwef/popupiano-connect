@@ -44,14 +44,27 @@ export function lightsOffFrames(): number[][] {
   return [lamps(mainModule), lamps(extensionModule)];
 }
 
+export function isPopuPiano(name: string | null | undefined): boolean {
+  return /popu[\s_-]*piano/i.test(name ?? '');
+}
+
 export function popuPianoPorts<Port extends MIDIPort>(ports: Iterable<Port>): Port[] {
   return [...ports].filter(port =>
-    port.state === 'connected' && /popu[\s_-]*piano/i.test(port.name ?? ''));
+    port.state === 'connected' && isPopuPiano(port.name));
 }
+
+export interface BluetoothLightingOutput {
+  readonly id: string;
+  readonly state: MIDIPortDeviceState;
+  sendFrames(frames: readonly number[][], signal?: AbortSignal): Promise<void>;
+}
+
+export type LightingOutput = MIDIOutput | BluetoothLightingOutput;
 
 const lastSend = new WeakMap<MIDIOutput, number>();
 
-export function sendFinalFrame(output: MIDIOutput, frame: number[]): void {
+export async function sendFinalFrame(output: LightingOutput, frame: number[]): Promise<void> {
+  if ('sendFrames' in output) return output.sendFrames([frame]);
   if ('clear' in output && typeof output.clear === 'function') {
     output.clear();
     output.send(frame);
@@ -61,7 +74,8 @@ export function sendFinalFrame(output: MIDIOutput, frame: number[]): void {
   }
 }
 
-export async function sendFrames(output: MIDIOutput, frames: readonly number[][], signal?: AbortSignal): Promise<void> {
+export async function sendFrames(output: LightingOutput, frames: readonly number[][], signal?: AbortSignal): Promise<void> {
+  if ('sendFrames' in output) return output.sendFrames(frames, signal);
   await output.open();
   if (signal?.aborted) return;
   let at = Math.max(performance.now(), (lastSend.get(output) ?? -25) + 25);
@@ -70,4 +84,7 @@ export async function sendFrames(output: MIDIOutput, frames: readonly number[][]
     lastSend.set(output, at);
     at += 25;
   }
+  // Closing a Web MIDI port discards future messages, including a scheduled lights-off.
+  const remaining = (lastSend.get(output) ?? 0) - performance.now();
+  if (remaining > 0) await new Promise(resolve => setTimeout(resolve, Math.ceil(remaining)));
 }

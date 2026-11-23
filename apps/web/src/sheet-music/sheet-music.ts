@@ -1,5 +1,5 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import { extraPianoNotes, mainPianoNotes } from '../lighting';
+import { extraPianoNotes, mainPianoNotes, type LightingOutput } from '../lighting';
 import { noteName } from '../music';
 import { applyPreference, rememberPreference } from '../preferences';
 import { matchNote } from './practice';
@@ -14,7 +14,7 @@ export function mountSheetMusic(
   pianoKeys: ReadonlyMap<number, HTMLButtonElement>,
   setKeyboardRange: (extended: boolean) => void,
   restorePattern: () => void,
-  selectedOutput: () => MIDIOutput | undefined,
+  selectedOutput: () => LightingOutput | undefined,
 ) {
   const workbench = document.querySelector<HTMLElement>('.workbench')!;
   workbench.insertAdjacentHTML('afterbegin', markup);
@@ -97,10 +97,11 @@ export function mountSheetMusic(
     controls.lightsStatus.textContent = message;
   }
 
-  function outputChanged(outputs?: readonly MIDIOutput[]): void {
+  function outputChanged(outputs?: readonly LightingOutput[]): Promise<boolean> {
     const sendHints = practice === 'active' && !controls.panel.hidden && controls.learningHints.checked;
-    updateLights(sendHints ? selectedOutput() : undefined, current.midi, outputs);
+    const flushed = updateLights(sendHints ? selectedOutput() : undefined, current.midi, outputs);
     updateLightingStatus();
+    return flushed;
   }
 
   function selectedPart() {

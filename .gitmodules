@@ -1,0 +1,4 @@
+[submodule "apps/web/vendor/tonejs-audio"]
+	path = apps/web/vendor/tonejs-audio
+	url = https://github.com/Tonejs/audio.git
+	shallow = true
